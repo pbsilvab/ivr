@@ -190,5 +190,73 @@ class TaskRouterControllerTest extends TestCase
         $this->assertStringContainsString('Unable to connect', $content);
         $this->assertStringContainsString('Hangup', $content);
     }
+
+    public function test_events_handles_task_timeout(): void
+    {
+        $call = Call::create([
+            'call_sid' => 'CAtimeouteventtest001',
+            'from_number' => '+15559999999',
+            'status' => 'initiated',
+            'task_sid' => 'WTeventtimeout001',
+        ]);
+
+        $taskRecord = TaskRecord::create([
+            'task_sid' => 'WTeventtimeout001',
+            'call_id' => $call->id,
+            'workflow_sid' => config('services.twilio.workflow_sid'),
+            'status' => 'pending',
+        ]);
+
+        $authToken = config('services.twilio.token') ?? 'test_token';
+        $url = url('/api/taskrouter/events');
+        $params = [
+            'TaskSid' => 'WTeventtimeout001',
+            'TaskStatus' => 'wrapup',
+            'EventType' => 'task.completed',
+        ];
+
+        $signature = $this->computeSignature($url, $params, $authToken);
+
+        $response = $this->post('/api/taskrouter/events', $params, [
+            'X-Twilio-Signature' => $signature,
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson(['status' => 'processed']);
+
+        // Verify task and call updated
+        $this->assertDatabaseHas('task_records', [
+            'task_sid' => 'WTeventtimeout001',
+            'status' => 'timeout',
+        ]);
+
+        $this->assertDatabaseHas('calls', [
+            'call_sid' => 'CAtimeouteventtest001',
+            'status' => 'agent_unavailable',
+            'outcome' => 'no_agent',
+        ]);
+    }
+
+    public function test_events_ignores_unknown_task(): void
+    {
+        $authToken = config('services.twilio.token') ?? 'test_token';
+        $url = url('/api/taskrouter/events');
+        $params = [
+            'TaskSid' => 'WTunknownevent001',
+            'TaskStatus' => 'wrapup',
+            'EventType' => 'task.completed',
+        ];
+
+        $signature = $this->computeSignature($url, $params, $authToken);
+
+        $response = $this->post('/api/taskrouter/events', $params, [
+            'X-Twilio-Signature' => $signature,
+        ]);
+
+        // Should return 200 even if task not found
+        $response->assertStatus(200);
+        $response->assertJson(['status' => 'processed']);
+    }
 }
+
 

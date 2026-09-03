@@ -268,6 +268,73 @@ class VoiceControllerTest extends TestCase
             'recording_sid' => 'REvoicemailnotify001',
         ]);
     }
+
+    public function test_no_agent_available_redirects_to_voicemail(): void
+    {
+        $call = Call::create([
+            'call_sid' => 'CAnoagenttest001',
+            'from_number' => '+15557777777',
+            'status' => 'initiated',
+        ]);
+
+        $authToken = config('services.twilio.token') ?? 'test_token';
+        $url = url('/api/voice/no-agent-available');
+        $params = [
+            'CallSid' => 'CAnoagenttest001',
+        ];
+
+        $signature = $this->computeSignature($url, $params, $authToken);
+
+        $response = $this->post('/api/voice/no-agent-available', $params, [
+            'X-Twilio-Signature' => $signature,
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertHeader('Content-Type', 'application/xml');
+
+        $content = $response->getContent();
+        $this->assertStringContainsString('unavailable', $content);
+        $this->assertStringContainsString('<Record', $content);
+        $this->assertStringContainsString('voicemail-record', $content);
+    }
+
+    public function test_no_agent_available_with_accepted_task_hangs_up(): void
+    {
+        $call = Call::create([
+            'call_sid' => 'CAwithagenttest001',
+            'from_number' => '+15558888888',
+            'status' => 'accepted',
+        ]);
+
+        $taskRecord = \App\Models\TaskRecord::create([
+            'task_sid' => 'WTwithagent001',
+            'call_id' => $call->id,
+            'workflow_sid' => config('services.twilio.workflow_sid'),
+            'status' => 'accepted',
+            'reservation_sid' => 'WRwithagent001',
+        ]);
+
+        $call->update(['task_sid' => $taskRecord->task_sid]);
+
+        $authToken = config('services.twilio.token') ?? 'test_token';
+        $url = url('/api/voice/no-agent-available');
+        $params = [
+            'CallSid' => 'CAwithagenttest001',
+        ];
+
+        $signature = $this->computeSignature($url, $params, $authToken);
+
+        $response = $this->post('/api/voice/no-agent-available', $params, [
+            'X-Twilio-Signature' => $signature,
+        ]);
+
+        $response->assertStatus(200);
+
+        $content = $response->getContent();
+        // Should not record voicemail since task was accepted
+        $this->assertStringNotContainsString('<Record', $content);
+        $this->assertStringContainsString('<Hangup', $content);
+    }
 }
 
 

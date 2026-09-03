@@ -11,8 +11,10 @@ Route::middleware(['api', 'twilio.signature'])->prefix('voice')->group(function 
     Route::post('incoming', [VoiceController::class, 'incoming']);
     Route::post('gather-digits', [VoiceController::class, 'gatherDigits']);
     Route::post('voicemail-record', [VoiceController::class, 'voicemailRecord']);
+    Route::post('no-agent-available', [VoiceController::class, 'noAgentAvailable']);
 });
 
 Route::middleware(['api', 'twilio.signature'])->prefix('taskrouter')->group(function () {
     Route::post('assignment', [TaskRouterController::class, 'assignment']);
+    Route::post('events', [TaskRouterController::class, 'events']);
 });

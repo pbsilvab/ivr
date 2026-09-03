@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Call;
 use App\Services\RouteCallToAgentAction;
+use App\Services\TaskTimeoutHandler;
 use App\Services\VoicemailHandler;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -79,6 +80,32 @@ class VoiceController extends Controller
         $response = new VoiceResponse();
         $response->say('Thank you for your message. Goodbye.');
         $response->hangup();
+
+        return response($response, 200)
+            ->header('Content-Type', 'application/xml');
+    }
+
+    public function noAgentAvailable(Request $request, TaskTimeoutHandler $timeoutHandler, VoicemailHandler $voicemailHandler): Response
+    {
+        $callSid = $request->input('CallSid');
+
+        // Find the Call record
+        $call = Call::where('call_sid', $callSid)->first();
+
+        $response = new VoiceResponse();
+
+        if ($call && ! $timeoutHandler->wasTaskAccepted($callSid)) {
+            // No agent accepted - fallback to voicemail
+            $response->say('All agents are currently unavailable. Please leave a message and we will get back to you shortly.');
+            $response->record([
+                'action' => url('/api/voice/voicemail-record'),
+                'method' => 'POST',
+            ]);
+        } else {
+            // Should not reach here if an agent accepted
+            $response->say('An error occurred. Please try again later.');
+            $response->hangup();
+        }
 
         return response($response, 200)
             ->header('Content-Type', 'application/xml');
