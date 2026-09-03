@@ -19,9 +19,7 @@ class TaskRouterProvisioner
 
     private const ACTIVITY_UNAVAILABLE = 'Unavailable';
 
-    public function __construct(private readonly Client $client)
-    {
-    }
+    public function __construct(private readonly Client $client) {}
 
     /**
      * Create or reuse the TaskRouter resources needed to route calls, and provision a

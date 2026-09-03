@@ -77,5 +77,3 @@ class ProvisionTaskRouterCommand extends Command
         $this->info("Created agent #{$agent->id} ({$agent->name}).");
     }
 }
-
-
