@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Call;
 use App\Services\RouteCallToAgentAction;
+use App\Services\VoicemailHandler;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Twilio\TwiML\VoiceResponse;
@@ -53,7 +54,7 @@ class VoiceController extends Controller
             // Route to agent
             $response = $routeToAgent->handle($call);
         } elseif ($digit === '2') {
-            // Voicemail route (placeholder for Phase 5)
+            // Voicemail route
             $response->say('Please record your message after the beep. Press any key when finished.');
             $response->record([
                 'action' => url('/api/voice/voicemail-record'),
@@ -68,6 +69,21 @@ class VoiceController extends Controller
         return response($response, 200)
             ->header('Content-Type', 'application/xml');
     }
+
+    public function voicemailRecord(Request $request, VoicemailHandler $voicemailHandler): Response
+    {
+        $payload = $request->all();
+        $voicemailHandler->handleRecording($payload);
+
+        // Return minimal TwiML - call ends here
+        $response = new VoiceResponse();
+        $response->say('Thank you for your message. Goodbye.');
+        $response->hangup();
+
+        return response($response, 200)
+            ->header('Content-Type', 'application/xml');
+    }
 }
+
 
 
