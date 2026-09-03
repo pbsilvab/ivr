@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\TaskRouterController;
 use App\Http\Controllers\VoiceController;
 use Illuminate\Support\Facades\Route;
 
@@ -9,4 +10,8 @@ use Illuminate\Support\Facades\Route;
 Route::middleware(['api', 'twilio.signature'])->prefix('voice')->group(function () {
     Route::post('incoming', [VoiceController::class, 'incoming']);
     Route::post('gather-digits', [VoiceController::class, 'gatherDigits']);
+});
+
+Route::middleware(['api', 'twilio.signature'])->prefix('taskrouter')->group(function () {
+    Route::post('assignment', [TaskRouterController::class, 'assignment']);
 });
