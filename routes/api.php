@@ -8,4 +8,5 @@ use Illuminate\Support\Facades\Route;
 
 Route::middleware(['api', 'twilio.signature'])->prefix('voice')->group(function () {
     Route::post('incoming', [VoiceController::class, 'incoming']);
+    Route::post('gather-digits', [VoiceController::class, 'gatherDigits']);
 });
