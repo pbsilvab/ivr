@@ -2,7 +2,9 @@
 
 namespace App\Providers;
 
+use App\Services\TwilioClientFactory;
 use Illuminate\Support\ServiceProvider;
+use Twilio\Rest\Client;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -11,7 +13,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(Client::class, fn () => TwilioClientFactory::make());
     }
 
     /**
