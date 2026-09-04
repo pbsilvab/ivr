@@ -184,6 +184,41 @@ class TaskTimeoutHandlerTest extends TestCase
         Http::assertSentCount(1);
     }
 
+    public function test_task_wrapup_completes_the_task_so_the_worker_regains_capacity(): void
+    {
+        Http::fake(['https://taskrouter.twilio.com/*' => Http::response(['sid' => 'WTwrapup001'], 200)]);
+
+        $call = Call::create([
+            'call_sid' => 'CAwrapup001',
+            'from_number' => '+15551234567',
+            'status' => 'accepted',
+            'task_sid' => 'WTwrapup001',
+        ]);
+
+        TaskRecord::create([
+            'task_sid' => 'WTwrapup001',
+            'call_id' => $call->id,
+            'workflow_sid' => config('services.twilio.workflow_sid'),
+            'status' => 'accepted',
+            'reservation_sid' => 'WRwrapup001',
+        ]);
+
+        $payload = ['EventType' => 'task.wrapup', 'TaskSid' => 'WTwrapup001'];
+
+        $this->handler()->handleTaskEvent($payload);
+        $this->handler()->handleTaskEvent($payload);
+
+        $this->assertDatabaseHas('task_records', [
+            'task_sid' => 'WTwrapup001',
+            'status' => 'completed',
+        ]);
+
+        // A wrapping Task holds the Worker's channel capacity until it is completed.
+        Http::assertSentCount(1);
+        Http::assertSent(fn (Request $request): bool => str_contains($request->url(), '/Tasks/WTwrapup001')
+            && $request['AssignmentStatus'] === 'completed');
+    }
+
     public function test_it_ignores_events_that_carry_no_task_sid(): void
     {
         $this->handler()->handleTaskEvent([

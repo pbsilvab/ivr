@@ -26,6 +26,7 @@ class TaskTimeoutHandler
         match ($payload['EventType'] ?? null) {
             'task.created' => $this->recordTask($taskSid, $payload),
             'task.canceled' => $this->fallBackToVoicemail($taskSid),
+            'task.wrapup' => $this->completeTask($taskSid),
             default => null,
         };
     }
@@ -72,6 +73,27 @@ class TaskTimeoutHandler
         );
 
         $call->update(['task_sid' => $taskSid]);
+    }
+
+    /**
+     * When the call ends a dequeued Task moves to `wrapping` and stays there until someone
+     * completes it, holding the Worker's channel capacity the whole time. Leave it and the agent
+     * shows as Available while being unreservable, so the next caller times out into voicemail.
+     */
+    private function completeTask(string $taskSid): void
+    {
+        $taskRecord = TaskRecord::where('task_sid', $taskSid)->first();
+
+        if (! $taskRecord || $taskRecord->status === 'completed') {
+            return;
+        }
+
+        $taskRecord->update(['status' => 'completed']);
+
+        $this->twilioClient->taskrouter->v1
+            ->workspaces(config('services.twilio.workspace_sid'))
+            ->tasks($taskSid)
+            ->update(['assignmentStatus' => 'completed']);
     }
 
     /**
