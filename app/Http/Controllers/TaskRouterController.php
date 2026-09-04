@@ -4,29 +4,31 @@ namespace App\Http\Controllers;
 
 use App\Services\TaskAssignmentHandler;
 use App\Services\TaskTimeoutHandler;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
 class TaskRouterController extends Controller
 {
-    public function assignment(Request $request, TaskAssignmentHandler $handler): Response
+    public function assignment(Request $request, TaskAssignmentHandler $handler): Response|JsonResponse
     {
-        $payload = $request->all();
+        // TaskRouter reads assignment instructions as JSON here, never TwiML.
+        $instruction = $handler->handleAssignmentCallback($request->all());
 
-        $response = $handler->handleAssignmentCallback($payload);
+        if ($instruction === []) {
+            // "No instruction" has to be an empty body: an empty PHP array encodes to `[]`, and
+            // TaskRouter rejects that with "Could not parse Assignment Instruction response".
+            return response('', 200);
+        }
 
-        return response($response, 200)
-            ->header('Content-Type', 'application/xml');
+        return response()->json($instruction, 200);
     }
 
-    public function events(Request $request, TaskTimeoutHandler $handler): Response
+    public function events(Request $request, TaskTimeoutHandler $handler): JsonResponse
     {
-        $payload = $request->all();
-        $handler->handleTaskEvent($payload);
+        $handler->handleTaskEvent($request->all());
 
-        // TaskRouter events don't require a response, but return 200 OK
-        return response(json_encode(['status' => 'processed']), 200)
-            ->header('Content-Type', 'application/json');
+        // TaskRouter ignores the body of an event callback; the 200 is the whole contract.
+        return response()->json(['status' => 'processed'], 200);
     }
 }
-

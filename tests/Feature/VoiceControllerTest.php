@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\Agent;
 use App\Models\Call;
+use App\Models\TaskRecord;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -10,19 +12,6 @@ use Tests\TestCase;
 class VoiceControllerTest extends TestCase
 {
     use RefreshDatabase;
-
-    private function computeSignature(string $url, array $params, string $authToken): string
-    {
-        $data = $url;
-        foreach ($params as $key => $value) {
-            if (is_array($value)) {
-                $value = implode('', $value);
-            }
-            $data .= $key . $value;
-        }
-
-        return base64_encode(hash_hmac('sha1', $data, $authToken, true));
-    }
 
     public function test_incoming_creates_call_record(): void
     {
@@ -72,34 +61,23 @@ class VoiceControllerTest extends TestCase
         $this->assertStringContainsString('press 2 to leave a voicemail', $content);
     }
 
-    public function test_gather_digits_press_1_routes_to_agent(): void
+    /**
+     * The Task is created by <Enqueue>, so pressing 1 makes no REST call and its SID is not known
+     * yet — the local TaskRecord is written when the `task.created` event arrives.
+     */
+    public function test_gather_digits_press_1_enqueues_the_caller(): void
     {
-        $call = Call::create([
+        Http::fake();
+
+        Call::create([
             'call_sid' => 'CA1111111111bbbbbbbb1111111111bbbb',
             'from_number' => '+15551111111',
             'status' => 'initiated',
         ]);
 
-        Http::fake([
-            'https://taskrouter.twilio.com/*' => Http::response([
-                'sid' => 'WTtestagenttask001',
-                'workflowSid' => config('services.twilio.workflow_sid'),
-                'attributes' => '{"callSid":"CA1111111111bbbbbbbb1111111111bbbb","from":"+15551111111"}',
-                'status' => 'pending',
-            ], 201),
-        ]);
-
-        $authToken = config('services.twilio.token') ?? 'test_token';
-        $url = url('/api/voice/gather-digits');
-        $params = [
+        $response = $this->twilioPost('/api/voice/gather-digits', [
             'CallSid' => 'CA1111111111bbbbbbbb1111111111bbbb',
             'Digits' => '1',
-        ];
-
-        $signature = $this->computeSignature($url, $params, $authToken);
-
-        $response = $this->post('/api/voice/gather-digits', $params, [
-            'X-Twilio-Signature' => $signature,
         ]);
 
         $response->assertStatus(200);
@@ -109,16 +87,17 @@ class VoiceControllerTest extends TestCase
         $this->assertStringContainsString('<Enqueue', $content);
         $this->assertStringContainsString('workflowSid', $content);
 
-        // Verify Call and TaskRecord were updated
+        // Attributes must travel in the <Task> noun, or the Task arrives without our callSid.
+        $this->assertStringContainsString('<Task>', $content);
+        $this->assertStringContainsString('CA1111111111bbbbbbbb1111111111bbbb', $content);
+
         $this->assertDatabaseHas('calls', [
             'call_sid' => 'CA1111111111bbbbbbbb1111111111bbbb',
-            'task_sid' => 'WTtestagenttask001',
+            'status' => 'queued',
+            'task_sid' => null,
         ]);
-        $this->assertDatabaseHas('task_records', [
-            'task_sid' => 'WTtestagenttask001',
-            'call_id' => $call->id,
-            'status' => 'pending',
-        ]);
+
+        Http::assertNothingSent();
     }
 
     public function test_gather_digits_press_2_routes_to_voicemail(): void
@@ -224,7 +203,7 @@ class VoiceControllerTest extends TestCase
 
     public function test_voicemail_record_notifies_agents(): void
     {
-        $agent = \App\Models\Agent::create([
+        $agent = Agent::create([
             'name' => 'voicemail_agent',
             'phone_number' => '+15555555555',
         ]);
@@ -235,8 +214,8 @@ class VoiceControllerTest extends TestCase
             'status' => 'initiated',
         ]);
 
-        \Illuminate\Support\Facades\Http::fake([
-            'https://api.twilio.com/2010-04-01/Accounts/*/Messages.json' => \Illuminate\Support\Facades\Http::response([
+        Http::fake([
+            'https://api.twilio.com/2010-04-01/Accounts/*/Messages.json' => Http::response([
                 'sid' => 'SMvoicemailnotify001',
                 'from' => config('services.twilio.number'),
                 'to' => $agent->phone_number,
@@ -306,7 +285,7 @@ class VoiceControllerTest extends TestCase
             'status' => 'accepted',
         ]);
 
-        $taskRecord = \App\Models\TaskRecord::create([
+        $taskRecord = TaskRecord::create([
             'task_sid' => 'WTwithagent001',
             'call_id' => $call->id,
             'workflow_sid' => config('services.twilio.workflow_sid'),
@@ -336,5 +315,3 @@ class VoiceControllerTest extends TestCase
         $this->assertStringContainsString('<Hangup', $content);
     }
 }
-
-

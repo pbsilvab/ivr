@@ -3,13 +3,40 @@
 namespace App\Services;
 
 use App\Models\Agent;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Twilio\Rest\Client;
 
 class AgentAvailabilityHandler
 {
-    public function __construct(private Client $twilioClient)
+    public function __construct(private Client $twilioClient) {}
+
+    /**
+     * Re-read every Worker's Activity from TaskRouter into the local `status` column.
+     *
+     * TaskRouter moves Workers on its own — a reservation that times out sends them to the
+     * Workspace's timeout Activity — so the local column drifts and the console ends up showing
+     * an agent as Available while Twilio has already taken them out of rotation.
+     */
+    public function syncStatuses(): void
     {
+        $workspaceSid = config('services.twilio.workspace_sid');
+        $availableSid = config('services.twilio.activity_available_sid');
+
+        $workers = collect($this->twilioClient->taskrouter->v1->workspaces($workspaceSid)->workers->read())
+            ->keyBy('sid');
+
+        foreach (Agent::whereNotNull('twilio_worker_sid')->get() as $agent) {
+            $worker = $workers->get($agent->twilio_worker_sid);
+
+            if (! $worker) {
+                continue;
+            }
+
+            $status = $worker->activitySid === $availableSid ? 'available' : 'unavailable';
+
+            if ($agent->status !== $status) {
+                $agent->update(['status' => $status]);
+            }
+        }
     }
 
     public function toggleAvailability(int $agentId): array
@@ -69,4 +96,3 @@ class AgentAvailabilityHandler
         return $this->toggleAvailability($agentId);
     }
 }
-

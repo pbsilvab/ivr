@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AgentAvailabilityController;
+use App\Http\Controllers\DialerController;
 use App\Http\Controllers\TaskRouterController;
 use App\Http\Controllers\VoiceController;
 use Illuminate\Support\Facades\Route;
@@ -18,6 +19,16 @@ Route::middleware(['api', 'twilio.signature'])->prefix('voice')->group(function 
 Route::middleware(['api', 'twilio.signature'])->prefix('taskrouter')->group(function () {
     Route::post('assignment', [TaskRouterController::class, 'assignment']);
     Route::post('events', [TaskRouterController::class, 'events']);
+});
+
+// Browser dialer (softphone). The token endpoint is called by our own page, so it carries no
+// Twilio signature; the outbound webhook is a real Twilio callback and does.
+Route::middleware(['api', 'throttle:20,1'])->prefix('dialer')->group(function () {
+    Route::post('token', [DialerController::class, 'token']);
+});
+
+Route::middleware(['api', 'twilio.signature'])->prefix('dialer')->group(function () {
+    Route::post('outbound', [DialerController::class, 'outbound']);
 });
 
 Route::middleware(['api'])->prefix('agents')->group(function () {

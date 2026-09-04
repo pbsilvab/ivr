@@ -7,6 +7,7 @@ use App\Models\Call;
 use App\Models\TaskRecord;
 use App\Models\Voicemail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -14,20 +15,7 @@ class CallFlowIntegrationTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function computeSignature(string $url, array $params, string $authToken): string
-    {
-        $data = $url;
-        foreach ($params as $key => $value) {
-            if (is_array($value)) {
-                $value = implode('', $value);
-            }
-            $data .= $key . $value;
-        }
-
-        return base64_encode(hash_hmac('sha1', $data, $authToken, true));
-    }
-
-    public function test_complete_call_flow_incoming_to_agent_dial(): void
+    public function test_complete_call_flow_incoming_to_agent_dequeue(): void
     {
         $agent = Agent::create([
             'name' => 'integration_agent',
@@ -35,81 +23,54 @@ class CallFlowIntegrationTest extends TestCase
             'twilio_worker_sid' => 'WKintegrationtest001',
         ]);
 
-        $authToken = config('services.twilio.token') ?? 'test_token';
-
         // Step 1: Incoming call
-        $incoming_url = url('/api/voice/incoming');
-        $incoming_params = [
+        $response1 = $this->twilioPost('/api/voice/incoming', [
             'CallSid' => 'CAintegrationflow001',
             'From' => '+15559999999',
-        ];
-        $incoming_sig = $this->computeSignature($incoming_url, $incoming_params, $authToken);
-
-        $response1 = $this->post('/api/voice/incoming', $incoming_params, [
-            'X-Twilio-Signature' => $incoming_sig,
         ]);
         $response1->assertStatus(200);
         $this->assertStringContainsString('<Gather', $response1->getContent());
-        $this->assertStringContainsString('action=', $response1->getContent());
         $this->assertStringContainsString('/api/voice/gather-digits', $response1->getContent());
 
-        // Verify Call record created
         $this->assertDatabaseHas('calls', [
             'call_sid' => 'CAintegrationflow001',
             'from_number' => '+15559999999',
             'status' => 'initiated',
         ]);
 
-        // Step 2: User presses 1 for agent
-        Http::fake([
-            'https://taskrouter.twilio.com/*' => Http::response([
-                'sid' => 'WTintegrationflow001',
-                'workflowSid' => config('services.twilio.workflow_sid'),
-                'attributes' => '{"callSid":"CAintegrationflow001","from":"+15559999999"}',
-                'status' => 'pending',
-            ], 201),
-        ]);
-
-        $gather_url = url('/api/voice/gather-digits');
-        $gather_params = [
+        // Step 2: caller presses 1 and lands in the Workflow's queue
+        $response2 = $this->twilioPost('/api/voice/gather-digits', [
             'CallSid' => 'CAintegrationflow001',
             'Digits' => '1',
-        ];
-        $gather_sig = $this->computeSignature($gather_url, $gather_params, $authToken);
-
-        $response2 = $this->post('/api/voice/gather-digits', $gather_params, [
-            'X-Twilio-Signature' => $gather_sig,
         ]);
         $response2->assertStatus(200);
         $this->assertStringContainsString('<Enqueue', $response2->getContent());
 
-        // Verify Task created
+        // Step 3: TaskRouter reports the Task it built from <Enqueue> — this is where we learn its SID
+        $this->twilioPost('/api/taskrouter/events', [
+            'EventType' => 'task.created',
+            'TaskSid' => 'WTintegrationflow001',
+            'TaskAttributes' => json_encode(['callSid' => 'CAintegrationflow001', 'from' => '+15559999999']),
+        ])->assertStatus(200);
+
         $call = Call::where('call_sid', 'CAintegrationflow001')->first();
-        $this->assertNotNull($call->task_sid);
+        $this->assertSame('WTintegrationflow001', $call->task_sid);
         $this->assertDatabaseHas('task_records', [
             'task_sid' => 'WTintegrationflow001',
             'call_id' => $call->id,
             'status' => 'pending',
         ]);
 
-        // Step 3: TaskRouter assignment - agent accepts
-        $assign_url = url('/api/taskrouter/assignment');
-        $assign_params = [
+        // Step 4: a Worker is reserved and we instruct TaskRouter to bridge the queued caller
+        $response4 = $this->twilioPost('/api/taskrouter/assignment', [
             'TaskSid' => 'WTintegrationflow001',
             'WorkerSid' => 'WKintegrationtest001',
-            'AssignmentStatus' => 'accepted',
             'ReservationSid' => 'WRintegrationflow001',
-        ];
-        $assign_sig = $this->computeSignature($assign_url, $assign_params, $authToken);
-
-        $response3 = $this->post('/api/taskrouter/assignment', $assign_params, [
-            'X-Twilio-Signature' => $assign_sig,
         ]);
-        $response3->assertStatus(200);
-        $this->assertStringContainsString('<Dial', $response3->getContent());
-        $this->assertStringContainsString($agent->phone_number, $response3->getContent());
+        $response4->assertStatus(200);
+        $this->assertSame('dequeue', $response4->json('instruction'));
+        $this->assertSame($agent->phone_number, $response4->json('to'));
 
-        // Verify Call and Task records updated
         $call->refresh();
         $this->assertEquals('accepted', $call->status);
         $this->assertEquals($agent->id, $call->agent_id);
@@ -127,60 +88,37 @@ class CallFlowIntegrationTest extends TestCase
             'twilio_worker_sid' => 'WKvoicemailtest001',
         ]);
 
-        $authToken = config('services.twilio.token') ?? 'test_token';
+        Http::fake([
+            'https://api.twilio.com/2010-04-01/Accounts/*/Calls/*' => Http::response(['sid' => 'CAfake'], 200),
+            'https://api.twilio.com/2010-04-01/Accounts/*/Messages.json' => Http::response(['sid' => 'SMvoicemailflow001'], 201),
+        ]);
 
         // Step 1: Incoming call
-        $incoming_url = url('/api/voice/incoming');
-        $incoming_params = [
+        $this->twilioPost('/api/voice/incoming', [
             'CallSid' => 'CAvoicemailflow001',
             'From' => '+15559999999',
-        ];
-        $incoming_sig = $this->computeSignature($incoming_url, $incoming_params, $authToken);
+        ])->assertStatus(200);
 
-        $response1 = $this->post('/api/voice/incoming', $incoming_params, [
-            'X-Twilio-Signature' => $incoming_sig,
-        ]);
-        $response1->assertStatus(200);
-
-        // Step 2: User presses 1 for agent
-        Http::fake([
-            'https://taskrouter.twilio.com/*' => Http::response([
-                'sid' => 'WTvoicemailflow001',
-                'workflowSid' => config('services.twilio.workflow_sid'),
-                'attributes' => '{"callSid":"CAvoicemailflow001","from":"+15559999999"}',
-                'status' => 'pending',
-            ], 201),
-        ]);
-
-        $gather_url = url('/api/voice/gather-digits');
-        $gather_params = [
+        // Step 2: caller presses 1 and is enqueued
+        $this->twilioPost('/api/voice/gather-digits', [
             'CallSid' => 'CAvoicemailflow001',
             'Digits' => '1',
-        ];
-        $gather_sig = $this->computeSignature($gather_url, $gather_params, $authToken);
+        ])->assertStatus(200);
 
-        $response2 = $this->post('/api/voice/gather-digits', $gather_params, [
-            'X-Twilio-Signature' => $gather_sig,
-        ]);
-        $response2->assertStatus(200);
+        $this->twilioPost('/api/taskrouter/events', [
+            'EventType' => 'task.created',
+            'TaskSid' => 'WTvoicemailflow001',
+            'TaskAttributes' => json_encode(['callSid' => 'CAvoicemailflow001']),
+        ])->assertStatus(200);
 
         $call = Call::where('call_sid', 'CAvoicemailflow001')->first();
 
-        // Step 3: TaskRouter timeout event (no agent accepted)
-        $timeout_url = url('/api/taskrouter/events');
-        $timeout_params = [
+        // Step 3: nobody accepts, so the Workflow timeout cancels the Task
+        $this->twilioPost('/api/taskrouter/events', [
+            'EventType' => 'task.canceled',
             'TaskSid' => 'WTvoicemailflow001',
-            'TaskStatus' => 'completed',
-            'EventType' => 'task.completed',
-        ];
-        $timeout_sig = $this->computeSignature($timeout_url, $timeout_params, $authToken);
+        ])->assertStatus(200);
 
-        $response3 = $this->post('/api/taskrouter/events', $timeout_params, [
-            'X-Twilio-Signature' => $timeout_sig,
-        ]);
-        $response3->assertStatus(200);
-
-        // Verify task marked timeout and call marked agent_unavailable
         $this->assertDatabaseHas('task_records', [
             'task_sid' => 'WTvoicemailflow001',
             'status' => 'timeout',
@@ -189,36 +127,20 @@ class CallFlowIntegrationTest extends TestCase
         $this->assertEquals('agent_unavailable', $call->status);
         $this->assertEquals('no_agent', $call->outcome);
 
-        // Step 4: Fallback to voicemail - Agent calls no_agent_available endpoint
-        $noagent_url = url('/api/voice/no-agent-available');
-        $noagent_params = [
-            'CallSid' => 'CAvoicemailflow001',
-        ];
-        $noagent_sig = $this->computeSignature($noagent_url, $noagent_params, $authToken);
+        // The caller is still in <Enqueue>; redirecting the live call is what moves them on.
+        Http::assertSent(fn (Request $request): bool => str_contains($request->url(), '/Calls/CAvoicemailflow001.json')
+            && $request['Url'] === url('/api/voice/no-agent-available'));
 
-        $response4 = $this->post('/api/voice/no-agent-available', $noagent_params, [
-            'X-Twilio-Signature' => $noagent_sig,
-        ]);
+        // Step 4: the redirected call lands on the voicemail prompt
+        $response4 = $this->twilioPost('/api/voice/no-agent-available', ['CallSid' => 'CAvoicemailflow001']);
         $response4->assertStatus(200);
         $this->assertStringContainsString('<Record', $response4->getContent());
 
         // Step 5: Voicemail recorded
-        Http::fake([
-            'https://api.twilio.com/2010-04-01/Accounts/*/Messages.json' => Http::response([
-                'sid' => 'SMvoicemailflow001',
-            ], 201),
-        ]);
-
-        $voicemail_url = url('/api/voice/voicemail-record');
-        $voicemail_params = [
+        $response5 = $this->twilioPost('/api/voice/voicemail-record', [
             'CallSid' => 'CAvoicemailflow001',
             'RecordingSid' => 'REvoicemailflow001',
             'RecordingUrl' => 'https://api.twilio.com/recordings/REvoicemailflow001',
-        ];
-        $voicemail_sig = $this->computeSignature($voicemail_url, $voicemail_params, $authToken);
-
-        $response5 = $this->post('/api/voice/voicemail-record', $voicemail_params, [
-            'X-Twilio-Signature' => $voicemail_sig,
         ]);
         $response5->assertStatus(200);
         $this->assertStringContainsString('Thank you', $response5->getContent());
@@ -309,58 +231,33 @@ class CallFlowIntegrationTest extends TestCase
             'twilio_worker_sid' => 'WKconcurrenttest001',
         ]);
 
-        $authToken = config('services.twilio.token') ?? 'test_token';
-
         // Create two incoming calls
         for ($i = 1; $i <= 2; $i++) {
-            $incoming_url = url('/api/voice/incoming');
-            $incoming_params = [
+            $this->twilioPost('/api/voice/incoming', [
                 'CallSid' => "CAconcurrentflow00{$i}",
-                'From' => '+1555999999' . $i,
-            ];
-            $incoming_sig = $this->computeSignature($incoming_url, $incoming_params, $authToken);
-
-            $this->post('/api/voice/incoming', $incoming_params, [
-                'X-Twilio-Signature' => $incoming_sig,
+                'From' => '+1555999999'.$i,
             ])->assertStatus(200);
         }
 
-        // Verify both Call records created
         $this->assertEquals(2, Call::count());
 
-        // User on first call presses 1 for agent
-        Http::fake([
-            'https://taskrouter.twilio.com/*' => Http::response([
-                'sid' => 'WTconcurrentflow001',
-                'workflowSid' => config('services.twilio.workflow_sid'),
-                'attributes' => '{"callSid":"CAconcurrentflow001","from":"+15559999991"}',
-                'status' => 'pending',
-            ], 201),
-        ]);
-
-        $gather_url = url('/api/voice/gather-digits');
-        $gather_params = [
+        // Caller on the first call presses 1 and is enqueued
+        $this->twilioPost('/api/voice/gather-digits', [
             'CallSid' => 'CAconcurrentflow001',
             'Digits' => '1',
-        ];
-        $gather_sig = $this->computeSignature($gather_url, $gather_params, $authToken);
-
-        $this->post('/api/voice/gather-digits', $gather_params, [
-            'X-Twilio-Signature' => $gather_sig,
         ])->assertStatus(200);
 
-        // Agent accepts first call
-        $assign_url = url('/api/taskrouter/assignment');
-        $assign_params = [
+        $this->twilioPost('/api/taskrouter/events', [
+            'EventType' => 'task.created',
+            'TaskSid' => 'WTconcurrentflow001',
+            'TaskAttributes' => json_encode(['callSid' => 'CAconcurrentflow001']),
+        ])->assertStatus(200);
+
+        // The only agent is reserved for the first call
+        $this->twilioPost('/api/taskrouter/assignment', [
             'TaskSid' => 'WTconcurrentflow001',
             'WorkerSid' => 'WKconcurrenttest001',
-            'AssignmentStatus' => 'accepted',
             'ReservationSid' => 'WRconcurrentflow001',
-        ];
-        $assign_sig = $this->computeSignature($assign_url, $assign_params, $authToken);
-
-        $this->post('/api/taskrouter/assignment', $assign_params, [
-            'X-Twilio-Signature' => $assign_sig,
         ])->assertStatus(200);
 
         // Verify first call is accepted
@@ -425,11 +322,12 @@ class CallFlowIntegrationTest extends TestCase
                         'status' => 'pending',
                     ], 201);
                 }
+
                 return Http::response([], 200);
             },
         ]);
 
-        $toggle_url = url('/api/agents/' . $agent->id . '/availability/set');
+        $toggle_url = url('/api/agents/'.$agent->id.'/availability/set');
         $toggle_params = [
             'status' => 'unavailable',
         ];
