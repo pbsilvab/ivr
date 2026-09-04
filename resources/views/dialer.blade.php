@@ -13,9 +13,14 @@
 <main class="mx-auto flex min-h-full max-w-5xl flex-col gap-6 p-6 lg:flex-row lg:items-start">
 
     <section class="w-full rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 lg:max-w-sm">
-        <header class="mb-5">
-            <h1 class="text-lg font-semibold">Softphone</h1>
-            <p class="text-sm text-slate-500">Places a call as an external customer would.</p>
+        <header class="mb-5 flex items-baseline justify-between gap-3">
+            <div>
+                <h1 class="text-lg font-semibold">Softphone</h1>
+                <p class="text-sm text-slate-500">Places a call as an external customer would.</p>
+            </div>
+            <a href="{{ route('agents') }}" class="shrink-0 text-sm font-medium text-slate-600 underline hover:text-slate-900">
+                Agents →
+            </a>
         </header>
 
         @unless ($configured)

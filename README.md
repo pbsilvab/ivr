@@ -73,6 +73,7 @@ When someone calls your Twilio number:
 ✅ **Voicemail Fallback** - Auto-records when no agent accepts  
 ✅ **SMS Notifications** - Agents notified of voicemail  
 ✅ **Browser Dialer** - Softphone at `/dialer` that calls in as an external customer  
+✅ **Agent Console** - Availability toggles at `/agents`  
 ✅ **Idempotent** - Handles duplicate webhooks gracefully  
 ✅ **Out-of-Order Safe** - Protects against delayed webhook delivery  
 ✅ **51 Tests** - Full test coverage, 200+ assertions  
@@ -97,6 +98,7 @@ POST /api/taskrouter/events           # Task timeout/completion
 
 ### Agent Management (from your app)
 ```
+GET  /agents                                # Agent console (availability toggles)
 POST /api/agents/{id}/availability/toggle   # Switch available ↔ unavailable
 POST /api/agents/{id}/availability/set      # Set specific status
 ```
