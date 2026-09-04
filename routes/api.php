@@ -32,6 +32,10 @@ Route::middleware(['api', 'twilio.signature'])->prefix('dialer')->group(function
 });
 
 Route::middleware(['api'])->prefix('agents')->group(function () {
+    Route::post('/', [AgentAvailabilityController::class, 'store']);
+    Route::post('number-check', [AgentAvailabilityController::class, 'checkNumber']);
+    Route::post('{agentId}/verify-number', [AgentAvailabilityController::class, 'verifyNumber'])
+        ->middleware('throttle:5,1');
     Route::post('{agentId}/availability/toggle', [AgentAvailabilityController::class, 'toggle']);
     Route::post('{agentId}/availability/set', [AgentAvailabilityController::class, 'set']);
 });

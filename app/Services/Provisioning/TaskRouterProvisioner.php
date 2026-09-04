@@ -148,6 +148,25 @@ class TaskRouterProvisioner
     }
 
     /**
+     * Create the TaskRouter Worker for one Agent and persist its SID.
+     *
+     * `contact_uri` is what the assignment callback's `dequeue` instruction dials, so it has to
+     * be the agent's real number.
+     */
+    public function provisionWorker(Agent $agent, string $workspaceSid, string $activitySid): string
+    {
+        $worker = $this->client->taskrouter->v1->workspaces($workspaceSid)->workers
+            ->create($agent->name, [
+                'attributes' => json_encode(['contact_uri' => $agent->phone_number]),
+                'activitySid' => $activitySid,
+            ]);
+
+        $agent->update(['twilio_worker_sid' => $worker->sid]);
+
+        return $worker->sid;
+    }
+
+    /**
      * @return list<array{agent_id: int, worker_sid: string}>
      */
     private function provisionWorkers(string $workspaceSid, string $unavailableActivitySid): array
@@ -155,15 +174,10 @@ class TaskRouterProvisioner
         $provisioned = [];
 
         foreach (Agent::whereNull('twilio_worker_sid')->get() as $agent) {
-            $worker = $this->client->taskrouter->v1->workspaces($workspaceSid)->workers
-                ->create($agent->name, [
-                    'attributes' => json_encode(['contact_uri' => $agent->phone_number]),
-                    'activitySid' => $unavailableActivitySid,
-                ]);
-
-            $agent->update(['twilio_worker_sid' => $worker->sid]);
-
-            $provisioned[] = ['agent_id' => $agent->id, 'worker_sid' => $worker->sid];
+            $provisioned[] = [
+                'agent_id' => $agent->id,
+                'worker_sid' => $this->provisionWorker($agent, $workspaceSid, $unavailableActivitySid),
+            ];
         }
 
         return $provisioned;
