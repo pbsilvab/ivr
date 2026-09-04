@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AgentAvailabilityController;
 use App\Http\Controllers\TaskRouterController;
 use App\Http\Controllers\VoiceController;
 use Illuminate\Support\Facades\Route;
@@ -17,4 +18,9 @@ Route::middleware(['api', 'twilio.signature'])->prefix('voice')->group(function 
 Route::middleware(['api', 'twilio.signature'])->prefix('taskrouter')->group(function () {
     Route::post('assignment', [TaskRouterController::class, 'assignment']);
     Route::post('events', [TaskRouterController::class, 'events']);
+});
+
+Route::middleware(['api'])->prefix('agents')->group(function () {
+    Route::post('{agentId}/availability/toggle', [AgentAvailabilityController::class, 'toggle']);
+    Route::post('{agentId}/availability/set', [AgentAvailabilityController::class, 'set']);
 });
