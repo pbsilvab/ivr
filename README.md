@@ -34,6 +34,13 @@ php artisan taskrouter:provision
 php artisan test
 ```
 
+### 5. Browser dialer (optional)
+```bash
+php artisan dialer:provision   # copy the printed SIDs into .env
+npm install && npm run build
+# then open https://<your-ngrok-host>/dialer
+```
+
 ---
 
 ## What This Does
@@ -50,6 +57,7 @@ When someone calls your Twilio number:
 
 ## Documentation
 
+- [☎️ Browser Dialer](docs/DIALER.md) - Softphone that calls in as an external customer
 - [📖 Complete System Guide](docs/INCOMING_CALL_FLOW.md) - Diagrams, flows, payloads, troubleshooting
 - [🏗️ Architecture Design](docs/LaravelImplementation.md) - Decision rationale
 - [📝 Implementation Notes](docs/IMPLEMENTATION_NOTES.md) - What was built, how to use it
@@ -64,6 +72,7 @@ When someone calls your Twilio number:
 ✅ **Agent Assignment** - Twilio TaskRouter routes to available agents  
 ✅ **Voicemail Fallback** - Auto-records when no agent accepts  
 ✅ **SMS Notifications** - Agents notified of voicemail  
+✅ **Browser Dialer** - Softphone at `/dialer` that calls in as an external customer  
 ✅ **Idempotent** - Handles duplicate webhooks gracefully  
 ✅ **Out-of-Order Safe** - Protects against delayed webhook delivery  
 ✅ **51 Tests** - Full test coverage, 200+ assertions  
@@ -90,6 +99,13 @@ POST /api/taskrouter/events           # Task timeout/completion
 ```
 POST /api/agents/{id}/availability/toggle   # Switch available ↔ unavailable
 POST /api/agents/{id}/availability/set      # Set specific status
+```
+
+### Browser Dialer
+```
+GET  /dialer                          # Softphone UI
+POST /api/dialer/token                # Mint a Voice Access Token (rate-limited)
+POST /api/dialer/outbound             # TwiML App voice URL — bridges browser → Twilio number
 ```
 
 ---

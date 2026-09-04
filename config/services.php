@@ -44,6 +44,27 @@ return [
         'task_queue_sid' => env('TWILIO_TASKQUEUE_SID'),
         'activity_available_sid' => env('TWILIO_ACTIVITY_AVAILABLE_SID'),
         'activity_unavailable_sid' => env('TWILIO_ACTIVITY_UNAVAILABLE_SID'),
+
+        // Browser dialer (softphone that plays the role of an external caller).
+        'twiml_app_sid' => env('TWILIO_TWIML_APP_SID'),
+        'api_key_sid' => env('TWILIO_API_KEY_SID'),
+        'api_key_secret' => env('TWILIO_API_KEY_SECRET'),
+
+        'dialer' => [
+            // Caller ID the customer leg shows. Must be a Twilio number on the account or a
+            // verified number; defaults to the app's own number.
+            'caller_id' => env('TWILIO_DIALER_CALLER_ID') ?: env('TWILIO_NUMBER'),
+
+            // Only these destinations may be dialed from the browser. The dialer exists to call
+            // the app's own number, so anything else is refused — an unauthenticated token
+            // endpoint plus an open <Dial> would be a toll-fraud invitation.
+            'allowed_numbers' => array_values(array_filter(array_map(
+                'trim',
+                explode(',', (string) (env('TWILIO_DIALER_ALLOWED_NUMBERS') ?: env('TWILIO_NUMBER'))),
+            ))),
+
+            'token_ttl' => (int) env('TWILIO_DIALER_TOKEN_TTL', 3600),
+        ],
     ],
 
 ];
