@@ -62,6 +62,11 @@ class TaskRouterProvisionerTest extends TestCase
                 $path === '/v1/Workspaces/'.self::WORKSPACE_SID.'/Workers' && $method === 'POST' => Http::response([
                     'sid' => 'WKNEWWORKER00000000000000000001', 'friendly_name' => 'Test Agent',
                 ]),
+                str_ends_with($path, '/Channels/voice') => Http::response([
+                    'sid' => 'WCTEST0000000000000000000000001',
+                    'task_channel_unique_name' => 'voice',
+                    'configured_capacity' => 1,
+                ]),
                 default => Http::response(['message' => "Unexpected fake request: {$method} {$path}"], 500),
             };
         });
@@ -81,6 +86,64 @@ class TaskRouterProvisionerTest extends TestCase
 
         Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
             && parse_url($request->url(), PHP_URL_PATH) === '/v1/Workspaces');
+
+        // Twilio defaults this to 1 anyway, but inheriting it leaves the value nowhere in the
+        // repo and unrecoverable by re-running the command.
+        Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
+            && str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), '/Workers/WKNEWWORKER00000000000000000001/Channels/voice')
+            && $request['Capacity'] === 1
+            && $request['Available'] === 'true');
+    }
+
+    /**
+     * A Worker provisioned before this step existed keeps whatever capacity it was given, so
+     * re-running the command has to converge it rather than only touching new Workers.
+     */
+    public function test_it_also_sets_the_voice_capacity_of_workers_that_already_existed(): void
+    {
+        Agent::create([
+            'name' => 'Already Provisioned',
+            'phone_number' => '+15550002222',
+            'twilio_worker_sid' => 'WKEXISTING000000000000000000001',
+        ]);
+
+        Http::fake(function (Request $request) {
+            $method = $request->method();
+            $path = (string) parse_url($request->url(), PHP_URL_PATH);
+
+            return match (true) {
+                $path === '/v1/Workspaces' => Http::response([
+                    'workspaces' => [['sid' => self::WORKSPACE_SID, 'friendly_name' => 'Voice Workspace']],
+                    'meta' => ['key' => 'workspaces'],
+                ]),
+                $path === '/v1/Workspaces/'.self::WORKSPACE_SID.'/Activities' => Http::response([
+                    'activities' => [
+                        ['sid' => self::AVAILABLE_SID, 'friendly_name' => 'Available'],
+                        ['sid' => self::UNAVAILABLE_SID, 'friendly_name' => 'Unavailable'],
+                    ],
+                    'meta' => ['key' => 'activities'],
+                ]),
+                $path === '/v1/Workspaces/'.self::WORKSPACE_SID.'/TaskQueues' => Http::response([
+                    'task_queues' => [['sid' => self::TASK_QUEUE_SID, 'friendly_name' => 'Everyone']],
+                    'meta' => ['key' => 'task_queues'],
+                ]),
+                $path === '/v1/Workspaces/'.self::WORKSPACE_SID.'/Workflows' => Http::response([
+                    'workflows' => [['sid' => self::WORKFLOW_SID, 'friendly_name' => 'Voice Workflow']],
+                    'meta' => ['key' => 'workflows'],
+                ]),
+                default => Http::response([
+                    'sid' => self::WORKFLOW_SID,
+                    'task_channel_unique_name' => 'voice',
+                    'configured_capacity' => 1,
+                ]),
+            };
+        });
+
+        app(TaskRouterProvisioner::class)->provision(self::APP_URL);
+
+        Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
+            && str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), '/Workers/WKEXISTING000000000000000000001/Channels/voice')
+            && $request['Capacity'] === 1);
     }
 
     public function test_it_reuses_existing_resources_and_only_provisions_workers_for_pending_agents(): void
@@ -121,6 +184,11 @@ class TaskRouterProvisionerTest extends TestCase
                 ]),
                 $path === '/v1/Workspaces/'.self::WORKSPACE_SID.'/Workers' && $method === 'POST' => Http::response([
                     'sid' => 'WKNEWWORKER00000000000000000002', 'friendly_name' => 'Pending Agent',
+                ]),
+                str_ends_with($path, '/Channels/voice') => Http::response([
+                    'sid' => 'WCTEST0000000000000000000000001',
+                    'task_channel_unique_name' => 'voice',
+                    'configured_capacity' => 1,
                 ]),
                 default => Http::response(['message' => "Unexpected fake request: {$method} {$path}"], 500),
             };

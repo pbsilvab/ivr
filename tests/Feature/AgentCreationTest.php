@@ -63,9 +63,15 @@ class AgentCreationTest extends TestCase
             'status' => 'unavailable',
         ]);
 
-        // contact_uri is what the dequeue instruction dials.
-        Http::assertSent(fn (Request $request): bool => str_contains($request->url(), '/Workers')
+        // contact_uri is what the dequeue instruction dials. Match the create call specifically —
+        // provisioning also hits /Workers/{sid}/Channels/voice, which carries no attributes.
+        Http::assertSent(fn (Request $request): bool => str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), '/Workers')
             && str_contains($request['Attributes'], '+5491166716882'));
+
+        // An agent created from the console gets the same explicit voice capacity as one created
+        // by taskrouter:provision.
+        Http::assertSent(fn (Request $request): bool => str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), '/Channels/voice')
+            && $request['Capacity'] === 1);
     }
 
     public function test_it_leaves_geographic_permissions_alone_unless_asked(): void
