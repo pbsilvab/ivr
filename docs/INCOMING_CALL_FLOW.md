@@ -550,11 +550,38 @@ phpunit-watcher watch
 
 ### Potential Enhancements
 
-1. **Call Recording:** Add `<Record>` to Dial TwiML to record agent-caller conversations
-2. **Multiple Queues:** Different routing based on phone number or IVR digit selection
-3. **Call Analytics:** Track average wait time, acceptance rate, voicemail volume
-4. **CRM Integration:** Send voicemail transcription + recording link to ticketing system
-5. **Agent Dashboard:** Real-time view of assigned tasks and availability status
+1. **Configurable IVR flows.** The call tree is currently hardcoded: digit `1` routes to an
+   agent, digit `2` goes to voicemail, and both branches are written into
+   `VoiceController@gatherDigits`. That matches the scope the SDD sets — a two-option branch,
+   with a longer IVR listed as a non-goal — but it does mean every change to the tree is a code
+   change and a deploy.
+
+   The step up is to move the flow out of the controller and into data: a stored graph of nodes
+   (play a prompt, gather digits, enqueue to a Workflow, record, hang up) that the controller
+   walks at runtime, so the tree can be edited without touching PHP. Three ways to get there, in
+   increasing order of ownership:
+
+   - **Twilio Studio** — Twilio's own visual flow builder, already wired into Voice and
+     TaskRouter. Lowest effort, but the flow lives in the Twilio console instead of this
+     repository, so it is neither versioned nor reviewable alongside the code.
+   - **An external orchestrator** such as Node-RED or n8n — the app exposes its routing
+     primitives as HTTP endpoints and the flow is drawn there. Worth it when the same flows have
+     to reach past telephony into CRM or notifications, at the cost of another service to run,
+     secure and version.
+   - **A first-party editor** built on a node-graph library such as React Flow, persisting the
+     graph to the app's own database. The most work, but the flow definition stays versioned with
+     the code, can be validated against what the backend actually supports, and puts no
+     third-party service in the call path.
+
+   The backend change is the same under all three, and is the interesting part: replacing the
+   `if ($digit === '1')` branch with an interpreter over a stored flow definition. Everything
+   else — the TaskRouter routing, the voicemail fallback, the idempotency guards — stays as is.
+
+2. **Call Recording:** Add `<Record>` to Dial TwiML to record agent-caller conversations
+3. **Multiple Queues:** Different routing based on phone number or IVR digit selection
+4. **Call Analytics:** Track average wait time, acceptance rate, voicemail volume
+5. **CRM Integration:** Send voicemail transcription + recording link to ticketing system
+6. **Agent Dashboard:** Real-time view of assigned tasks and availability status
 
 ---
 
