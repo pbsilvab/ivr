@@ -13,19 +13,6 @@ class IdempotencyTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function computeSignature(string $url, array $params, string $authToken): string
-    {
-        $data = $url;
-        foreach ($params as $key => $value) {
-            if (is_array($value)) {
-                $value = implode('', $value);
-            }
-            $data .= $key . $value;
-        }
-
-        return base64_encode(hash_hmac('sha1', $data, $authToken, true));
-    }
-
     public function test_duplicate_incoming_call_reuses_record(): void
     {
         $authToken = config('services.twilio.token') ?? 'test_token';
@@ -116,8 +103,9 @@ class IdempotencyTest extends TestCase
         Http::fake([
             'https://api.twilio.com/2010-04-01/Accounts/*/Messages.json' => function () use (&$smsCallCount) {
                 $smsCallCount++;
+
                 return Http::response([
-                    'sid' => 'SMvoicemailduptest00' . $smsCallCount,
+                    'sid' => 'SMvoicemailduptest00'.$smsCallCount,
                     'from' => config('services.twilio.number'),
                     'to' => '+15555555555',
                     'body' => 'New voicemail',
@@ -564,4 +552,3 @@ class IdempotencyTest extends TestCase
         ]);
     }
 }
-

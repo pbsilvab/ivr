@@ -13,22 +13,6 @@ class DialerControllerTest extends TestCase
 
     private const TWILIO_NUMBER = '+15550001111';
 
-    /**
-     * Twilio signs the URL plus every parameter as key+value, sorted by key.
-     */
-    private function computeSignature(string $url, array $params, string $authToken): string
-    {
-        ksort($params);
-
-        $data = $url;
-
-        foreach ($params as $key => $value) {
-            $data .= $key.(is_array($value) ? implode('', $value) : $value);
-        }
-
-        return base64_encode(hash_hmac('sha1', $data, $authToken, true));
-    }
-
     private function configureDialer(): void
     {
         config([

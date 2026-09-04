@@ -14,19 +14,6 @@ class CallFlowIntegrationTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function computeSignature(string $url, array $params, string $authToken): string
-    {
-        $data = $url;
-        foreach ($params as $key => $value) {
-            if (is_array($value)) {
-                $value = implode('', $value);
-            }
-            $data .= $key . $value;
-        }
-
-        return base64_encode(hash_hmac('sha1', $data, $authToken, true));
-    }
-
     public function test_complete_call_flow_incoming_to_agent_dial(): void
     {
         $agent = Agent::create([
@@ -316,7 +303,7 @@ class CallFlowIntegrationTest extends TestCase
             $incoming_url = url('/api/voice/incoming');
             $incoming_params = [
                 'CallSid' => "CAconcurrentflow00{$i}",
-                'From' => '+1555999999' . $i,
+                'From' => '+1555999999'.$i,
             ];
             $incoming_sig = $this->computeSignature($incoming_url, $incoming_params, $authToken);
 
@@ -425,11 +412,12 @@ class CallFlowIntegrationTest extends TestCase
                         'status' => 'pending',
                     ], 201);
                 }
+
                 return Http::response([], 200);
             },
         ]);
 
-        $toggle_url = url('/api/agents/' . $agent->id . '/availability/set');
+        $toggle_url = url('/api/agents/'.$agent->id.'/availability/set');
         $toggle_params = [
             'status' => 'unavailable',
         ];

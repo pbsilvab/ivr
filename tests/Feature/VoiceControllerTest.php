@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\Agent;
 use App\Models\Call;
+use App\Models\TaskRecord;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -10,19 +12,6 @@ use Tests\TestCase;
 class VoiceControllerTest extends TestCase
 {
     use RefreshDatabase;
-
-    private function computeSignature(string $url, array $params, string $authToken): string
-    {
-        $data = $url;
-        foreach ($params as $key => $value) {
-            if (is_array($value)) {
-                $value = implode('', $value);
-            }
-            $data .= $key . $value;
-        }
-
-        return base64_encode(hash_hmac('sha1', $data, $authToken, true));
-    }
 
     public function test_incoming_creates_call_record(): void
     {
@@ -224,7 +213,7 @@ class VoiceControllerTest extends TestCase
 
     public function test_voicemail_record_notifies_agents(): void
     {
-        $agent = \App\Models\Agent::create([
+        $agent = Agent::create([
             'name' => 'voicemail_agent',
             'phone_number' => '+15555555555',
         ]);
@@ -235,8 +224,8 @@ class VoiceControllerTest extends TestCase
             'status' => 'initiated',
         ]);
 
-        \Illuminate\Support\Facades\Http::fake([
-            'https://api.twilio.com/2010-04-01/Accounts/*/Messages.json' => \Illuminate\Support\Facades\Http::response([
+        Http::fake([
+            'https://api.twilio.com/2010-04-01/Accounts/*/Messages.json' => Http::response([
                 'sid' => 'SMvoicemailnotify001',
                 'from' => config('services.twilio.number'),
                 'to' => $agent->phone_number,
@@ -306,7 +295,7 @@ class VoiceControllerTest extends TestCase
             'status' => 'accepted',
         ]);
 
-        $taskRecord = \App\Models\TaskRecord::create([
+        $taskRecord = TaskRecord::create([
             'task_sid' => 'WTwithagent001',
             'call_id' => $call->id,
             'workflow_sid' => config('services.twilio.workflow_sid'),
@@ -336,5 +325,3 @@ class VoiceControllerTest extends TestCase
         $this->assertStringContainsString('<Hangup', $content);
     }
 }
-
-

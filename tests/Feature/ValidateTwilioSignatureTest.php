@@ -6,19 +6,6 @@ use Tests\TestCase;
 
 class ValidateTwilioSignatureTest extends TestCase
 {
-    private function computeSignature(string $url, array $params, string $authToken): string
-    {
-        $data = $url;
-        foreach ($params as $key => $value) {
-            if (is_array($value)) {
-                $value = implode('', $value);
-            }
-            $data .= $key . $value;
-        }
-
-        return base64_encode(hash_hmac('sha1', $data, $authToken, true));
-    }
-
     public function test_valid_signature_passes(): void
     {
         $authToken = config('services.twilio.token') ?? 'test_token';

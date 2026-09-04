@@ -12,19 +12,6 @@ class TaskRouterControllerTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function computeSignature(string $url, array $params, string $authToken): string
-    {
-        $data = $url;
-        foreach ($params as $key => $value) {
-            if (is_array($value)) {
-                $value = implode('', $value);
-            }
-            $data .= $key . $value;
-        }
-
-        return base64_encode(hash_hmac('sha1', $data, $authToken, true));
-    }
-
     public function test_assignment_accepted_dials_agent(): void
     {
         // Create agent, call, and task
@@ -258,5 +245,3 @@ class TaskRouterControllerTest extends TestCase
         $response->assertJson(['status' => 'processed']);
     }
 }
-
-
