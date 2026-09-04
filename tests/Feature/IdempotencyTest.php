@@ -319,5 +319,249 @@ class IdempotencyTest extends TestCase
             'status' => 'rejected',
         ]);
     }
+
+    public function test_timeout_event_then_delayed_assignment_accepted_ignores_assignment(): void
+    {
+        $agent = Agent::create([
+            'name' => 'outoforder_agent',
+            'phone_number' => '+15551234567',
+            'twilio_worker_sid' => 'WKoutofordertest001',
+        ]);
+
+        $call = Call::create([
+            'call_sid' => 'CAoutofordertest001',
+            'from_number' => '+15559999999',
+            'status' => 'initiated',
+            'task_sid' => 'WToutofordertest001',
+        ]);
+
+        $taskRecord = TaskRecord::create([
+            'task_sid' => 'WToutofordertest001',
+            'call_id' => $call->id,
+            'workflow_sid' => config('services.twilio.workflow_sid'),
+            'status' => 'pending',
+        ]);
+
+        $authToken = config('services.twilio.token') ?? 'test_token';
+
+        // First: timeout event arrives
+        $timeout_url = url('/api/taskrouter/events');
+        $timeout_params = [
+            'TaskSid' => 'WToutofordertest001',
+            'TaskStatus' => 'completed',
+            'EventType' => 'task.completed',
+        ];
+        $timeout_signature = $this->computeSignature($timeout_url, $timeout_params, $authToken);
+
+        $timeout_response = $this->post('/api/taskrouter/events', $timeout_params, [
+            'X-Twilio-Signature' => $timeout_signature,
+        ]);
+        $timeout_response->assertStatus(200);
+
+        // Verify task marked as timeout
+        $this->assertDatabaseHas('task_records', [
+            'task_sid' => 'WToutofordertest001',
+            'status' => 'timeout',
+        ]);
+
+        // Second: delayed assignment accepted arrives (out of order)
+        $assign_url = url('/api/taskrouter/assignment');
+        $assign_params = [
+            'TaskSid' => 'WToutofordertest001',
+            'WorkerSid' => 'WKoutofordertest001',
+            'AssignmentStatus' => 'accepted',
+            'ReservationSid' => 'WRoutofordertest001',
+        ];
+        $assign_signature = $this->computeSignature($assign_url, $assign_params, $authToken);
+
+        $assign_response = $this->post('/api/taskrouter/assignment', $assign_params, [
+            'X-Twilio-Signature' => $assign_signature,
+        ]);
+        $assign_response->assertStatus(200);
+
+        // Task status should remain 'timeout', not changed to 'accepted'
+        // Assignment handler detects terminal state and skips update
+        $this->assertDatabaseHas('task_records', [
+            'task_sid' => 'WToutofordertest001',
+            'status' => 'timeout',
+        ]);
+
+        // Response should indicate call already handled
+        $this->assertStringContainsString('already been handled', $assign_response->getContent());
+    }
+
+    public function test_timeout_event_received_multiple_times_only_updates_once(): void
+    {
+        $call = Call::create([
+            'call_sid' => 'CAmultitimeouttest001',
+            'from_number' => '+15551234567',
+            'status' => 'initiated',
+            'task_sid' => 'WTmultitimeouttest001',
+        ]);
+
+        $taskRecord = TaskRecord::create([
+            'task_sid' => 'WTmultitimeouttest001',
+            'call_id' => $call->id,
+            'workflow_sid' => config('services.twilio.workflow_sid'),
+            'status' => 'pending',
+        ]);
+
+        $authToken = config('services.twilio.token') ?? 'test_token';
+        $url = url('/api/taskrouter/events');
+        $params = [
+            'TaskSid' => 'WTmultitimeouttest001',
+            'TaskStatus' => 'wrapup',
+            'EventType' => 'task.completed',
+        ];
+
+        $signature = $this->computeSignature($url, $params, $authToken);
+
+        // Send timeout event three times
+        for ($i = 0; $i < 3; $i++) {
+            $response = $this->post('/api/taskrouter/events', $params, [
+                'X-Twilio-Signature' => $signature,
+            ]);
+            $response->assertStatus(200);
+        }
+
+        // Should only have one timeout update
+        $this->assertDatabaseHas('task_records', [
+            'task_sid' => 'WTmultitimeouttest001',
+            'status' => 'timeout',
+        ]);
+
+        // Call should be marked as agent_unavailable only once
+        $this->assertDatabaseHas('calls', [
+            'call_sid' => 'CAmultitimeouttest001',
+            'status' => 'agent_unavailable',
+            'outcome' => 'no_agent',
+        ]);
+    }
+
+    public function test_assignment_accepted_then_task_completed_event_ignores_timeout(): void
+    {
+        $agent = Agent::create([
+            'name' => 'acceptedorder_agent',
+            'phone_number' => '+15551234567',
+            'twilio_worker_sid' => 'WKacceptedordertest001',
+        ]);
+
+        $call = Call::create([
+            'call_sid' => 'CAacceptedordertest001',
+            'from_number' => '+15559999999',
+            'status' => 'initiated',
+        ]);
+
+        $taskRecord = TaskRecord::create([
+            'task_sid' => 'WTacceptedordertest001',
+            'call_id' => $call->id,
+            'workflow_sid' => config('services.twilio.workflow_sid'),
+            'status' => 'pending',
+            'reservation_sid' => 'WRacceptedordertest001',
+        ]);
+
+        $authToken = config('services.twilio.token') ?? 'test_token';
+
+        // First: assignment accepted
+        $assign_url = url('/api/taskrouter/assignment');
+        $assign_params = [
+            'TaskSid' => 'WTacceptedordertest001',
+            'WorkerSid' => 'WKacceptedordertest001',
+            'AssignmentStatus' => 'accepted',
+            'ReservationSid' => 'WRacceptedordertest001',
+        ];
+        $assign_signature = $this->computeSignature($assign_url, $assign_params, $authToken);
+
+        $assign_response = $this->post('/api/taskrouter/assignment', $assign_params, [
+            'X-Twilio-Signature' => $assign_signature,
+        ]);
+        $assign_response->assertStatus(200);
+
+        // Verify accepted
+        $this->assertDatabaseHas('task_records', [
+            'task_sid' => 'WTacceptedordertest001',
+            'status' => 'accepted',
+        ]);
+
+        // Second: task completed event arrives
+        $timeout_url = url('/api/taskrouter/events');
+        $timeout_params = [
+            'TaskSid' => 'WTacceptedordertest001',
+            'TaskStatus' => 'completed',
+            'EventType' => 'task.completed',
+        ];
+        $timeout_signature = $this->computeSignature($timeout_url, $timeout_params, $authToken);
+
+        $timeout_response = $this->post('/api/taskrouter/events', $timeout_params, [
+            'X-Twilio-Signature' => $timeout_signature,
+        ]);
+        $timeout_response->assertStatus(200);
+
+        // Task should remain 'accepted', not changed to 'timeout'
+        // because it has reservation_sid and status != 'pending'
+        $this->assertDatabaseHas('task_records', [
+            'task_sid' => 'WTacceptedordertest001',
+            'status' => 'accepted',
+            'reservation_sid' => 'WRacceptedordertest001',
+        ]);
+
+        // Call status should remain 'accepted'
+        $this->assertDatabaseHas('calls', [
+            'call_sid' => 'CAacceptedordertest001',
+            'status' => 'accepted',
+        ]);
+    }
+
+    public function test_task_completed_event_with_reservation_never_marked_timeout(): void
+    {
+        $agent = Agent::create([
+            'name' => 'reserved_agent',
+            'phone_number' => '+15551234567',
+            'twilio_worker_sid' => 'WKreservedtest001',
+        ]);
+
+        $call = Call::create([
+            'call_sid' => 'CAreservedtest001',
+            'from_number' => '+15559999999',
+            'status' => 'initiated',
+        ]);
+
+        $taskRecord = TaskRecord::create([
+            'task_sid' => 'WTreservedtest001',
+            'call_id' => $call->id,
+            'workflow_sid' => config('services.twilio.workflow_sid'),
+            'status' => 'pending',
+            'reservation_sid' => 'WRreservedtest001',
+        ]);
+
+        $authToken = config('services.twilio.token') ?? 'test_token';
+        $url = url('/api/taskrouter/events');
+        $params = [
+            'TaskSid' => 'WTreservedtest001',
+            'TaskStatus' => 'completed',
+            'EventType' => 'task.completed',
+        ];
+
+        $signature = $this->computeSignature($url, $params, $authToken);
+
+        $response = $this->post('/api/taskrouter/events', $params, [
+            'X-Twilio-Signature' => $signature,
+        ]);
+        $response->assertStatus(200);
+
+        // Task should remain pending (not changed to timeout)
+        // because it has reservation_sid (was accepted by agent)
+        $this->assertDatabaseHas('task_records', [
+            'task_sid' => 'WTreservedtest001',
+            'status' => 'pending',
+            'reservation_sid' => 'WRreservedtest001',
+        ]);
+
+        // Call status should remain unchanged
+        $this->assertDatabaseHas('calls', [
+            'call_sid' => 'CAreservedtest001',
+            'status' => 'initiated',
+        ]);
+    }
 }
 

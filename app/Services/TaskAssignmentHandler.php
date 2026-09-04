@@ -26,7 +26,19 @@ class TaskAssignmentHandler
 
         $response = new VoiceResponse();
 
-        // Idempotency: If task already marked as accepted or rejected, return dial response only
+        // Idempotency: If task already in terminal state (timeout, rejected), don't update
+        if (in_array($taskRecord->status, ['timeout', 'rejected'])) {
+            // If assignment is accepted but task already timed out, return generic message
+            if ($assignmentStatus === 'accepted') {
+                $response->say('This call has already been handled.');
+                $response->hangup();
+            } else {
+                $response->say('The agent is unavailable. Your call will be transferred to the next available agent.');
+            }
+            return $response;
+        }
+
+        // Idempotency: If task already marked as accepted, return dial response only
         if ($taskRecord->status === 'accepted' && $assignmentStatus === 'accepted') {
             if ($agent) {
                 $response->dial($agent->phone_number, [
