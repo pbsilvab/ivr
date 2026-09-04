@@ -18,6 +18,14 @@ class TaskRouterProvisioner
 
     private const ACTIVITY_UNAVAILABLE = 'Unavailable';
 
+    /**
+     * Voice calls are routed on the `voice` Task Channel, and a Worker's capacity on it is what
+     * TaskRouter checks before creating a Reservation. One concurrent call per agent.
+     */
+    public const VOICE_TASK_CHANNEL = 'voice';
+
+    public const VOICE_CHANNEL_CAPACITY = 1;
+
     public function __construct(private readonly Client $client) {}
 
     /**
@@ -39,7 +47,17 @@ class TaskRouterProvisioner
         [$availableSid, $unavailableSid] = $this->resolveActivities($workspaceSid);
         $taskQueueSid = $this->resolveTaskQueue($workspaceSid);
         $workflowSid = $this->resolveWorkflow($workspaceSid, $taskQueueSid, $appUrl);
+
+        // Workers created below configure their own channel; these already exist, and re-running
+        // the command has to converge them too — otherwise the capacity of an agent provisioned
+        // before this step stays at whatever Twilio defaulted it to.
+        $existingWorkerSids = Agent::whereNotNull('twilio_worker_sid')->pluck('twilio_worker_sid');
+
         $workers = $this->provisionWorkers($workspaceSid, $unavailableSid);
+
+        foreach ($existingWorkerSids as $workerSid) {
+            $this->configureVoiceChannel($workspaceSid, $workerSid);
+        }
 
         return [
             'workspaceSid' => $workspaceSid,
@@ -156,7 +174,28 @@ class TaskRouterProvisioner
 
         $agent->update(['twilio_worker_sid' => $worker->sid]);
 
+        $this->configureVoiceChannel($workspaceSid, $worker->sid);
+
         return $worker->sid;
+    }
+
+    /**
+     * Set the Worker's capacity on the voice channel explicitly.
+     *
+     * Twilio already defaults this to 1, but inheriting it means the value lives nowhere in the
+     * repo and `taskrouter:provision` cannot restore it. It is also the threshold that decides
+     * whether an agent is reservable at all: a Task left holding the channel makes the Worker
+     * unreservable while still reporting as Available.
+     */
+    private function configureVoiceChannel(string $workspaceSid, string $workerSid): void
+    {
+        $this->client->taskrouter->v1->workspaces($workspaceSid)
+            ->workers($workerSid)
+            ->workerChannels(self::VOICE_TASK_CHANNEL)
+            ->update([
+                'capacity' => self::VOICE_CHANNEL_CAPACITY,
+                'available' => true,
+            ]);
     }
 
     /**

@@ -39,6 +39,7 @@ class ProvisionTaskRouterCommand extends Command
             ['Activity: Unavailable', $result['unavailableSid']],
             ['TaskQueue', $result['taskQueueSid']],
             ['Workflow', $result['workflowSid']],
+            ['Voice channel capacity', (string) TaskRouterProvisioner::VOICE_CHANNEL_CAPACITY.' task per worker'],
         ]);
 
         if ($result['workers'] === []) {
