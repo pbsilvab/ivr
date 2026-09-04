@@ -50,7 +50,26 @@ class ProvisionTaskRouterCommand extends Command
             ));
         }
 
+        $this->printEnvironmentBlock($result);
+
         return self::SUCCESS;
+    }
+
+    /**
+     * The app reads these SIDs from `config('services.twilio.*')`, so `.env` is where they have
+     * to end up. Printing them is the whole handover: nothing else persists them.
+     *
+     * @param  array{workspaceSid: string, availableSid: string, unavailableSid: string, taskQueueSid: string, workflowSid: string}  $result
+     */
+    private function printEnvironmentBlock(array $result): void
+    {
+        $this->line('');
+        $this->line('Add to .env:');
+        $this->line("TWILIO_WORKSPACE_SID={$result['workspaceSid']}");
+        $this->line("TWILIO_TASKQUEUE_SID={$result['taskQueueSid']}");
+        $this->line("TWILIO_WORKFLOW_SID={$result['workflowSid']}");
+        $this->line("TWILIO_ACTIVITY_AVAILABLE_SID={$result['availableSid']}");
+        $this->line("TWILIO_ACTIVITY_UNAVAILABLE_SID={$result['unavailableSid']}");
     }
 
     /**

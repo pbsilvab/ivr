@@ -2,7 +2,6 @@
 
 namespace App\Services\Provisioning;
 
-use App\Models\Setting;
 use Twilio\Rest\Client;
 
 /**
@@ -44,8 +43,6 @@ class DialerProvisioner
 
             $created = true;
         }
-
-        Setting::set('twilio_twiml_app_sid', $sid);
 
         return ['twimlAppSid' => $sid, 'created' => $created];
     }

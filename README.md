@@ -317,8 +317,6 @@ Internal assessment project.
 
 ## Automated onboarding (TaskRouter provisioning)
 
-> Not implemented yet.
-
 ```bash
 php artisan taskrouter:provision
 ```
@@ -327,7 +325,11 @@ Creates (or reuses, if they already exist) the TaskRouter resources in order: Wo
 Activities (`Available`/`Unavailable`) → TaskQueue → Workflow → one Worker per local `Agent` that
 doesn't yet have a `twilio_worker_sid`, using `APP_URL` to register the callback URLs. It's
 idempotent (running it again won't duplicate resources) and safe to re-run whenever the public
-ngrok URL changes. The resulting SIDs are saved automatically; nothing needs to be copied by hand.
+ngrok URL changes.
+
+It finishes by printing the SIDs as `.env` lines, ready to paste. The app reads them from
+`config('services.twilio.*')`, so `.env` is the single place they live — the command does not
+persist them anywhere else.
 
 ## Tests
 
