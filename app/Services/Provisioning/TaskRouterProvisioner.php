@@ -3,7 +3,6 @@
 namespace App\Services\Provisioning;
 
 use App\Models\Agent;
-use App\Models\Setting;
 use RuntimeException;
 use Twilio\Rest\Client;
 
@@ -41,12 +40,6 @@ class TaskRouterProvisioner
         $taskQueueSid = $this->resolveTaskQueue($workspaceSid);
         $workflowSid = $this->resolveWorkflow($workspaceSid, $taskQueueSid, $appUrl);
         $workers = $this->provisionWorkers($workspaceSid, $unavailableSid);
-
-        Setting::set('twilio_workspace_sid', $workspaceSid);
-        Setting::set('twilio_activity_available_sid', $availableSid);
-        Setting::set('twilio_activity_unavailable_sid', $unavailableSid);
-        Setting::set('twilio_task_queue_sid', $taskQueueSid);
-        Setting::set('twilio_workflow_sid', $workflowSid);
 
         return [
             'workspaceSid' => $workspaceSid,

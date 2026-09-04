@@ -2,7 +2,6 @@
 
 namespace Tests\Feature\Provisioning;
 
-use App\Models\Setting;
 use App\Services\Provisioning\DialerProvisioner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -38,7 +37,6 @@ class DialerProvisionerTest extends TestCase
 
         $this->assertSame(self::APPLICATION_SID, $result['twimlAppSid']);
         $this->assertTrue($result['created']);
-        $this->assertSame(self::APPLICATION_SID, Setting::get('twilio_twiml_app_sid'));
 
         Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
             && str_ends_with((string) parse_url($request->url(), PHP_URL_PATH), '/Applications.json')

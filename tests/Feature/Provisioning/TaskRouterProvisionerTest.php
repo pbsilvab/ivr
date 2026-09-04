@@ -3,7 +3,6 @@
 namespace Tests\Feature\Provisioning;
 
 use App\Models\Agent;
-use App\Models\Setting;
 use App\Services\Provisioning\TaskRouterProvisioner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -78,8 +77,6 @@ class TaskRouterProvisionerTest extends TestCase
             ['agent_id' => $agent->id, 'worker_sid' => 'WKNEWWORKER00000000000000000001'],
         ], $result['workers']);
 
-        $this->assertSame(self::WORKSPACE_SID, Setting::get('twilio_workspace_sid'));
-        $this->assertSame(self::WORKFLOW_SID, Setting::get('twilio_workflow_sid'));
         $this->assertSame('WKNEWWORKER00000000000000000001', $agent->fresh()->twilio_worker_sid);
 
         Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
