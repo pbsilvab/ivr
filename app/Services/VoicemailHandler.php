@@ -25,7 +25,7 @@ class VoicemailHandler
         }
 
         // Create or update Voicemail record
-        Voicemail::updateOrCreate(
+        $voicemail = Voicemail::updateOrCreate(
             ['call_id' => $call->id],
             [
                 'recording_sid' => $recordingSid,
@@ -36,11 +36,13 @@ class VoicemailHandler
         // Update Call status
         $call->update(['status' => 'voicemail_recorded', 'outcome' => 'voicemail']);
 
-        // Notify agents via SMS (if any agents available)
-        $this->notifyAgentsOfVoicemail($call);
+        // Idempotency: Only notify agents if SMS not already sent
+        if (! $voicemail->sms_sid) {
+            $this->notifyAgentsOfVoicemail($call, $voicemail);
+        }
     }
 
-    private function notifyAgentsOfVoicemail(Call $call): void
+    private function notifyAgentsOfVoicemail(Call $call, Voicemail $voicemail): void
     {
         // Get all agents with phone numbers
         $agents = \App\Models\Agent::whereNotNull('phone_number')->get();
@@ -49,7 +51,7 @@ class VoicemailHandler
             return; // No agents to notify
         }
 
-        $message = "New voicemail from {$call->from_number}. Recording URL: {$call->voicemail?->recording_url}";
+        $message = "New voicemail from {$call->from_number}. Recording URL: {$voicemail->recording_url}";
 
         foreach ($agents as $agent) {
             try {
@@ -61,9 +63,9 @@ class VoicemailHandler
                     ]
                 );
 
-                // Save SMS SID if this is the first voicemail SMS
-                if ($call->voicemail && ! $call->voicemail->sms_sid) {
-                    $call->voicemail->update(['sms_sid' => $sms->sid]);
+                // Save SMS SID to first agent's notification (idempotency marker)
+                if (! $voicemail->sms_sid) {
+                    $voicemail->update(['sms_sid' => $sms->sid]);
                 }
             } catch (\Exception $e) {
                 // Log SMS failure but continue

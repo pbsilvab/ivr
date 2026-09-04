@@ -26,6 +26,19 @@ class TaskAssignmentHandler
 
         $response = new VoiceResponse();
 
+        // Idempotency: If task already marked as accepted or rejected, return dial response only
+        if ($taskRecord->status === 'accepted' && $assignmentStatus === 'accepted') {
+            if ($agent) {
+                $response->dial($agent->phone_number, [
+                    'callerId' => config('services.twilio.number'),
+                ]);
+            } else {
+                $response->say('Unable to connect to an agent at this time.');
+                $response->hangup();
+            }
+            return $response;
+        }
+
         if ($assignmentStatus === 'accepted') {
             // Update task and call status
             $taskRecord->update(['status' => 'accepted', 'reservation_sid' => $payload['ReservationSid'] ?? null]);
@@ -42,8 +55,10 @@ class TaskAssignmentHandler
                 $response->hangup();
             }
         } elseif ($assignmentStatus === 'rejected' || $assignmentStatus === 'timeout') {
-            // Agent rejected or timeout - task will be reassigned by Twilio
-            $taskRecord->update(['status' => 'rejected']);
+            // Idempotency: Only update if not already rejected
+            if ($taskRecord->status !== 'rejected') {
+                $taskRecord->update(['status' => 'rejected']);
+            }
             $response->say('The agent is unavailable. Your call will be transferred to the next available agent.');
         } else {
             // Handle other statuses if needed

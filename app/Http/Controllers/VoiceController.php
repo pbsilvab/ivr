@@ -17,12 +17,14 @@ class VoiceController extends Controller
         $callSid = $request->input('CallSid');
         $from = $request->input('From');
 
-        // Create Call record
-        $call = Call::create([
-            'call_sid' => $callSid,
-            'from_number' => $from,
-            'status' => 'initiated',
-        ]);
+        // Idempotency: Check if Call already exists
+        $call = Call::firstOrCreate(
+            ['call_sid' => $callSid],
+            [
+                'from_number' => $from,
+                'status' => 'initiated',
+            ]
+        );
 
         // Build TwiML response with Gather for IVR
         $response = new VoiceResponse();
@@ -48,6 +50,20 @@ class VoiceController extends Controller
 
         // Find the Call record
         $call = Call::where('call_sid', $callSid)->firstOrFail();
+
+        // Idempotency: If already processed digit 1, don't create another task
+        if ($digit === '1' && $call->task_sid) {
+            $response = new VoiceResponse();
+            $response->enqueue(null, [
+                'workflowSid' => config('services.twilio.workflow_sid'),
+                'taskAttributes' => json_encode([
+                    'callSid' => $call->call_sid,
+                    'from' => $call->from_number,
+                ]),
+            ]);
+            return response($response, 200)
+                ->header('Content-Type', 'application/xml');
+        }
 
         $response = new VoiceResponse();
 

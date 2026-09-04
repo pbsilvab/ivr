@@ -20,8 +20,11 @@ class TaskTimeoutHandler
 
         $call = $taskRecord->call;
 
-        // If task is wrapup or completed without being assigned, mark as timeout
-        if (in_array($taskStatus, ['completed', 'wrapup']) && ! $taskRecord->reservation_sid) {
+        // Idempotency: Only update if task is still in pending state and being marked as timeout
+        if (in_array($taskStatus, ['completed', 'wrapup']) && 
+            ! $taskRecord->reservation_sid && 
+            $taskRecord->status === 'pending') {
+            
             $taskRecord->update(['status' => 'timeout']);
             $call->update(['status' => 'agent_unavailable', 'outcome' => 'no_agent']);
         }
