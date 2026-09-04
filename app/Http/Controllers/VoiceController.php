@@ -27,7 +27,7 @@ class VoiceController extends Controller
         );
 
         // Build TwiML response with Gather for IVR
-        $response = new VoiceResponse();
+        $response = new VoiceResponse;
         $gather = $response->gather([
             'numDigits' => 1,
             'action' => url('/api/voice/gather-digits'),
@@ -51,21 +51,7 @@ class VoiceController extends Controller
         // Find the Call record
         $call = Call::where('call_sid', $callSid)->firstOrFail();
 
-        // Idempotency: If already processed digit 1, don't create another task
-        if ($digit === '1' && $call->task_sid) {
-            $response = new VoiceResponse();
-            $response->enqueue(null, [
-                'workflowSid' => config('services.twilio.workflow_sid'),
-                'taskAttributes' => json_encode([
-                    'callSid' => $call->call_sid,
-                    'from' => $call->from_number,
-                ]),
-            ]);
-            return response($response, 200)
-                ->header('Content-Type', 'application/xml');
-        }
-
-        $response = new VoiceResponse();
+        $response = new VoiceResponse;
 
         if ($digit === '1') {
             // Route to agent
@@ -93,7 +79,7 @@ class VoiceController extends Controller
         $voicemailHandler->handleRecording($payload);
 
         // Return minimal TwiML - call ends here
-        $response = new VoiceResponse();
+        $response = new VoiceResponse;
         $response->say('Thank you for your message. Goodbye.');
         $response->hangup();
 
@@ -108,7 +94,7 @@ class VoiceController extends Controller
         // Find the Call record
         $call = Call::where('call_sid', $callSid)->first();
 
-        $response = new VoiceResponse();
+        $response = new VoiceResponse;
 
         if ($call && ! $timeoutHandler->wasTaskAccepted($callSid)) {
             // No agent accepted - fallback to voicemail
@@ -127,6 +113,3 @@ class VoiceController extends Controller
             ->header('Content-Type', 'application/xml');
     }
 }
-
-
-
